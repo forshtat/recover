@@ -1,4 +1,8 @@
 {
+  "include": [
+    "src",
+    "build"
+  ],
   "compilerOptions": {
     "allowSyntheticDefaultImports": true,
     "composite": true,
