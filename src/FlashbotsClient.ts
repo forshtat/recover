@@ -7,16 +7,23 @@ import {
   SimulationResponse
 } from '@flashbots/ethers-provider-bundle'
 import { BaseProvider, TransactionRequest } from '@ethersproject/providers'
-import { ContractFactory, ethers, Signer } from 'ethers'
+import { ContractFactory, ethers, Signer, Contract } from 'ethers'
 
 import RecoveryApi from '../build/contracts/Recovery.json'
+import IERC20 from '../build/contracts/IERC20.json'
+
+const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+
+// todo temp address
+const newTokenHolder = '0x9fEd1d68D665321888B5C1bdB734a5C35ccDEA88'
+const usdtBalance = 169989859579
 
 export class FlashbotsClient {
   private flashbotsProvider!: FlashbotsBundleProvider
-  private ethersProvider!: BaseProvider
+  ethersProvider!: BaseProvider
 
-  ethPrivateKey!: string
-  usdtPrivateKey!: string
+  ethPrivateKey: string = process.env.ETH_PRIV ?? ''
+  usdtPrivateKey: string = process.env.USDT_PRIV ?? ''
   flashbotsPrivateKey: string = '0xb0057716d5917badaf911b193b12b910811c1497b5bada8d7711f758981c3773'
 
   authSigner!: Signer
@@ -28,23 +35,60 @@ export class FlashbotsClient {
     flashbotsRelayUrl: string
   ): Promise<this> {
     this.ethersProvider = new ethers.providers.JsonRpcProvider(url)
-    this.authSigner = new ethers.Wallet(this.flashbotsPrivateKey)
-    this.ethSigner = new ethers.Wallet(this.ethPrivateKey)
-    this.usdtSigner = new ethers.Wallet(this.usdtPrivateKey)
+    this.authSigner = new ethers.Wallet(this.flashbotsPrivateKey, this.ethersProvider)
+    this.ethSigner = new ethers.Wallet(this.ethPrivateKey, this.ethersProvider)
+    this.usdtSigner = new ethers.Wallet(this.usdtPrivateKey, this.ethersProvider)
     this.flashbotsProvider = await FlashbotsBundleProvider.create(this.ethersProvider, this.authSigner, flashbotsRelayUrl)
     return this
   }
 
-  getSendEthTransaction (): TransactionRequest {
-    return {}
+  async getSendEthTransaction (): Promise<TransactionRequest> {
+    console.log('sendEth')
+    const req: TransactionRequest =
+      {
+        from: await this.ethSigner.getAddress(),
+        to: await this.usdtSigner.getAddress(),
+        value: '0x' + 1e15.toString(16),
+        gasPrice: '0x2540be400',
+        chainId: 1,
+        gasLimit: '0x5208'
+      }
+      return req
   }
 
-  getRecoverTransaction (): TransactionRequest {
-    return {}
+  async getRecoverTransaction (): Promise<TransactionRequest> {
+    console.log('recoverTx')
+    // const usdt = await new Contract(USDT_CONTRACT_ADDRESS, IERC20.abi, this.ethersProvider)
+    const erc20 = new ethers.utils.Interface(IERC20.abi)
+    // todo:  temp address
+    const data = erc20.encodeFunctionData('transfer', [newTokenHolder, usdtBalance])
+    const req: TransactionRequest =
+      {
+        from: await this.usdtSigner.getAddress(),
+        to: USDT_CONTRACT_ADDRESS,
+        gasPrice: '0x2540be400',
+        chainId: 1,
+        gasLimit: '0x' + 1e6.toString(16),
+        data
+      }
+    return req
   }
 
-  getCompensateFlashbotsTransaction (): TransactionRequest {
-    return
+  async getCompensateFlashbotsTransaction (recoveryAddress: string): Promise<TransactionRequest> {
+    console.log('compEth')
+    const recovery = new ethers.utils.Interface(RecoveryApi.abi)
+    const data = recovery.encodeFunctionData('payToMiner', [newTokenHolder, USDT_CONTRACT_ADDRESS, usdtBalance])
+    const req: TransactionRequest =
+      {
+        from: await this.ethSigner.getAddress(),
+        to: recoveryAddress,
+        value: '0x' + 2e16.toString(16),
+        chainId: 1,
+        gasLimit: '0x' + 5e5.toString(16),
+        gasPrice: '0x2540be400',
+        data
+      }
+    return req
   }
 
   async deployRecovery () {
@@ -57,6 +101,7 @@ export class FlashbotsClient {
    * @param transactions - array of transactions to sign
    */
   async signBundle ([transferEth, recoverUsdt, payMiner]: TransactionRequest[]): Promise<string[]> {
+    console.log('signBundle')
     const bundle: FlashbotsBundleTransaction[] = [
       {
         transaction: transferEth,
@@ -68,7 +113,7 @@ export class FlashbotsClient {
       },
       {
         transaction: payMiner,
-        signer: this.usdtSigner
+        signer: this.ethSigner
       }
     ]
     return await this.flashbotsProvider.signBundle(bundle)

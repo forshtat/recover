@@ -5,7 +5,7 @@
   ],
   "compilerOptions": {
     "allowSyntheticDefaultImports": true,
-    "composite": true,
+//    "composite": true,
     "allowJs": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
